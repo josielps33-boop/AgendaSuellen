@@ -12,8 +12,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+
       - name: Baixar projeto
         uses: actions/checkout@v4
+
 
       - name: Configurar Java 17
         uses: actions/setup-java@v5
@@ -21,37 +23,118 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+
       - name: Configurar Android
         uses: android-actions/setup-android@v4
         with:
           packages: 'platforms;android-35 build-tools;35.0.0'
+
 
       - name: Configurar Gradle
         uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: '8.9'
 
+
       - name: Descompactar projeto
         run: |
           mkdir -p android
           unzip -q AgendaSuelen_Android_v4.zip -d android
 
-      - name: Verificar ferramentas
+
+      - name: Corrigir compatibilidade Java e Kotlin
+        working-directory: android
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          arquivo = Path("app/build.gradle")
+
+          if not arquivo.exists():
+              raise SystemExit("ERRO: app/build.gradle não foi encontrado.")
+
+          texto = arquivo.read_text()
+
+          # Java 17
+          if "compileOptions" not in texto:
+              texto = texto.replace(
+                  "android {",
+                  """android {
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          """,
+                  1
+              )
+          else:
+              texto = texto.replace(
+                  "sourceCompatibility JavaVersion.VERSION_1_8",
+                  "sourceCompatibility JavaVersion.VERSION_17"
+              )
+              texto = texto.replace(
+                  "targetCompatibility JavaVersion.VERSION_1_8",
+                  "targetCompatibility JavaVersion.VERSION_17"
+              )
+
+          # Kotlin 17
+          if "kotlinOptions" not in texto:
+              texto += """
+
+          kotlinOptions {
+              jvmTarget = '17'
+          }
+          """
+          else:
+              texto = texto.replace(
+                  'jvmTarget = "1.8"',
+                  'jvmTarget = "17"'
+              )
+              texto = texto.replace(
+                  "jvmTarget = '1.8'",
+                  "jvmTarget = '17'"
+              )
+
+          arquivo.write_text(texto)
+
+          print("======================================")
+          print("Compatibilidade Java/Kotlin corrigida")
+          print("Java target: 17")
+          print("Kotlin target: 17")
+          print("======================================")
+          PY
+
+
+      - name: Verificar Java
         run: |
           java -version
-          sdkmanager --version
+
+
+      - name: Verificar Gradle
+        run: |
           gradle --version
+
 
       - name: Verificar projeto
         working-directory: android
         run: |
+          echo "Arquivos do projeto:"
           ls -la
+          echo ""
+          echo "Arquivos do módulo app:"
           ls -la app
+
 
       - name: Compilar APK
         working-directory: android
         run: |
           gradle assembleDebug --no-daemon --stacktrace
+
+
+      - name: Verificar APK
+        run: |
+          ls -lh android/app/build/outputs/apk/debug/app-debug.apk
+
 
       - name: Disponibilizar APK
         uses: actions/upload-artifact@v4
