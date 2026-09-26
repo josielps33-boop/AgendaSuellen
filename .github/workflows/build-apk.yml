@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - 'AgendaSuelen_Android_v4.zip'
+      - 'AgendaSuelen_Android_v6*.zip'
       - '.github/workflows/build-apk.yml'
 
 jobs:
@@ -12,10 +12,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-
       - name: Baixar projeto
         uses: actions/checkout@v4
-
 
       - name: Configurar Java 17
         uses: actions/setup-java@v5
@@ -23,26 +21,35 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-
       - name: Configurar Android
         uses: android-actions/setup-android@v4
         with:
           packages: 'platforms;android-35 build-tools;35.0.0'
-
 
       - name: Configurar Gradle
         uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: '8.9'
 
-
-      - name: Descompactar projeto
+      - name: Localizar projeto v6
         run: |
+          ZIP=$(find . -maxdepth 1 -type f -name 'AgendaSuelen_Android_v6*.zip' | head -n 1)
+          if [ -z "$ZIP" ]; then
+            echo "ERRO: projeto AgendaSuelen Android v6 não encontrado."
+            exit 1
+          fi
           mkdir -p android
-          unzip -q AgendaSuelen_Android_v4.zip -d android
+          unzip -q "$ZIP" -d android
 
+      - name: Verificar projeto
+        working-directory: android
+        run: |
+          echo "Projeto:"
+          ls -la
+          echo "Módulo app:"
+          ls -la app
 
-      - name: Corrigir compatibilidade Java e Kotlin
+      - name: Corrigir Java e Kotlin para 17
         working-directory: android
         run: |
           python3 <<'PY'
@@ -51,11 +58,10 @@ jobs:
           arquivo = Path("app/build.gradle")
 
           if not arquivo.exists():
-              raise SystemExit("ERRO: app/build.gradle não foi encontrado.")
+              raise SystemExit("ERRO: app/build.gradle não encontrado.")
 
           texto = arquivo.read_text()
 
-          # Java 17
           if "compileOptions" not in texto:
               texto = texto.replace(
                   "android {",
@@ -69,15 +75,14 @@ jobs:
               )
           else:
               texto = texto.replace(
-                  "sourceCompatibility JavaVersion.VERSION_1_8",
-                  "sourceCompatibility JavaVersion.VERSION_17"
+                  "JavaVersion.VERSION_1_8",
+                  "JavaVersion.VERSION_17"
               )
               texto = texto.replace(
-                  "targetCompatibility JavaVersion.VERSION_1_8",
-                  "targetCompatibility JavaVersion.VERSION_17"
+                  "JavaVersion.VERSION_8",
+                  "JavaVersion.VERSION_17"
               )
 
-          # Kotlin 17
           if "kotlinOptions" not in texto:
               texto += """
 
@@ -97,47 +102,30 @@ jobs:
 
           arquivo.write_text(texto)
 
-          print("======================================")
-          print("Compatibilidade Java/Kotlin corrigida")
-          print("Java target: 17")
-          print("Kotlin target: 17")
-          print("======================================")
+          print("Java 17 configurado.")
+          print("Kotlin 17 configurado.")
           PY
 
-
       - name: Verificar Java
-        run: |
-          java -version
-
+        run: java -version
 
       - name: Verificar Gradle
-        run: |
-          gradle --version
-
-
-      - name: Verificar projeto
-        working-directory: android
-        run: |
-          echo "Arquivos do projeto:"
-          ls -la
-          echo ""
-          echo "Arquivos do módulo app:"
-          ls -la app
-
+        run: gradle --version
 
       - name: Compilar APK
         working-directory: android
-        run: |
-          gradle assembleDebug --no-daemon --stacktrace
-
+        run: gradle assembleDebug --no-daemon --stacktrace
 
       - name: Verificar APK
         run: |
+          if [ ! -f android/app/build/outputs/apk/debug/app-debug.apk ]; then
+            echo "ERRO: APK não foi gerado."
+            exit 1
+          fi
           ls -lh android/app/build/outputs/apk/debug/app-debug.apk
-
 
       - name: Disponibilizar APK
         uses: actions/upload-artifact@v4
         with:
-          name: AgendaSuelen-debug-apk
+          name: AgendaSuelen-Android-v6
           path: android/app/build/outputs/apk/debug/app-debug.apk
