@@ -1,22 +1,153 @@
-texto = texto.replace(
-                  "JavaVersion.VERSION_8",
-                  "JavaVersion.VERSION_17"
+name: Construir APK Agenda Suelen
+
+on:
+  workflow_dispatch:
+
+  push:
+    paths:
+      - 'AgendaSuelen_Android_v6*.zip'
+      - '.github/workflows/build-apk.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Baixar projeto
+        uses: actions/checkout@v4
+
+
+      - name: Configurar Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+
+      - name: Configurar Android
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platforms;android-35 build-tools;35.0.0'
+
+
+      - name: Configurar Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '8.9'
+
+
+      - name: Localizar projeto v6
+        run: |
+          echo "Arquivos ZIP encontrados:"
+          ls -lh *.zip
+
+          echo "Localizando arquivo AgendaSuelen v6..."
+
+          ZIP=$(find . -maxdepth 1 -type f -name 'AgendaSuelen_Android_v6*.zip' | head -n 1)
+
+          if [ -z "$ZIP" ]; then
+            echo "ERRO: ZIP da AgendaSuelen v6 não encontrado."
+            exit 1
+          fi
+
+          echo "ZIP encontrado:"
+          echo "$ZIP"
+
+          mkdir -p android
+
+          unzip -q "$ZIP" -d android
+
+          echo "Conteúdo extraído:"
+          find android -maxdepth 3 -type f | head -100
+
+
+      - name: Verificar projeto
+        run: |
+          echo "Procurando build.gradle..."
+
+          find android -name "build.gradle" -o -name "build.gradle.kts"
+
+          echo ""
+          echo "Procurando módulo app..."
+
+          find android -type d -name "app"
+
+
+      - name: Corrigir Java e Kotlin para 17
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          encontrados = list(Path("android").glob("**/app/build.gradle"))
+
+          if not encontrados:
+              raise SystemExit("ERRO: nenhum app/build.gradle foi encontrado.")
+
+          arquivo = encontrados[0]
+
+          print("======================================")
+          print("Arquivo encontrado:")
+          print(arquivo)
+          print("======================================")
+
+          texto = arquivo.read_text()
+
+          # --------------------------------------
+          # JAVA 17
+          # --------------------------------------
+
+          if "compileOptions" not in texto:
+
+              texto = texto.replace(
+                  "android {",
+                  """android {
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          """,
+                  1
+              )
+
+          else:
+
+              texto = texto.replace(
+                  "sourceCompatibility JavaVersion.VERSION_1_8",
+                  "sourceCompatibility JavaVersion.VERSION_17"
               )
 
               texto = texto.replace(
-                  "VERSION_1_8",
-                  "VERSION_17"
+                  "targetCompatibility JavaVersion.VERSION_1_8",
+                  "targetCompatibility JavaVersion.VERSION_17"
               )
 
-          # Kotlin 17
+              texto = texto.replace(
+                  "sourceCompatibility = JavaVersion.VERSION_1_8",
+                  "sourceCompatibility = JavaVersion.VERSION_17"
+              )
+
+              texto = texto.replace(
+                  "targetCompatibility = JavaVersion.VERSION_1_8",
+                  "targetCompatibility = JavaVersion.VERSION_17"
+              )
+
+
+          # --------------------------------------
+          # KOTLIN 17
+          # --------------------------------------
+
           if "kotlinOptions" not in texto:
+
               texto += """
 
           kotlinOptions {
               jvmTarget = '17'
           }
           """
+
           else:
+
               texto = texto.replace(
                   'jvmTarget = "1.8"',
                   'jvmTarget = "17"'
@@ -27,32 +158,33 @@ texto = texto.replace(
                   "jvmTarget = '17'"
               )
 
+
           arquivo.write_text(texto)
 
           print("")
           print("======================================")
-          print("Java/Kotlin configurados para 17")
+          print("JAVA/KOTLIN CONFIGURADOS")
+          print("Java target: 17")
+          print("Kotlin target: 17")
           print("======================================")
+
+
+          print("")
+          print("Trecho final do build.gradle:")
+          print("--------------------------------------")
+
+          linhas = arquivo.read_text().splitlines()
+
+          for i, linha in enumerate(linhas):
+              if "compileOptions" in linha or "kotlinOptions" in linha:
+                  inicio = max(0, i - 2)
+                  fim = min(len(linhas), i + 10)
+
+                  for trecho in linhas[inicio:fim]:
+                      print(trecho)
+
+                  print("--------------------------------------")
           PY
-
-
-      - name: Verificar projeto
-        run: |
-          echo "======================================"
-          echo "PROJETO:"
-          echo "$PROJECT_DIR"
-          echo ""
-          echo "BUILD GRADLE:"
-          echo "$APP_GRADLE"
-          echo "======================================"
-
-          echo ""
-          echo "Conteúdo do projeto:"
-          ls -la "$PROJECT_DIR"
-
-          echo ""
-          echo "Conteúdo do módulo app:"
-          ls -la "$PROJECT_DIR/app"
 
 
       - name: Verificar Java
@@ -66,28 +198,32 @@ texto = texto.replace(
 
 
       - name: Compilar APK
-        working-directory: ${{ env.PROJECT_DIR }}
+        working-directory: android
         run: |
           gradle assembleDebug --no-daemon --stacktrace
 
 
       - name: Verificar APK
         run: |
-          APK=$(find "$PROJECT_DIR" -type f -path '*/build/outputs/apk/debug/app-debug.apk' | head -n 1)
+          echo "Procurando APK..."
+
+          APK=$(find android -type f -name "app-debug.apk" | head -n 1)
 
           if [ -z "$APK" ]; then
-            echo "ERRO: APK não foi encontrado."
+            echo "ERRO: APK não foi gerado."
             exit 1
           fi
 
-          echo "APK encontrado:"
-          ls -lh "$APK"
+          echo "======================================"
+          echo "APK ENCONTRADO:"
+          echo "$APK"
+          echo "======================================"
 
-          echo "APK=$APK" >> "$GITHUB_ENV"
+          ls -lh "$APK"
 
 
       - name: Disponibilizar APK
         uses: actions/upload-artifact@v4
         with:
           name: AgendaSuelen-debug-apk
-          path: ${{ env.APK }}
+          path: android/**/app/build/outputs/apk/debug/app-debug.apk
